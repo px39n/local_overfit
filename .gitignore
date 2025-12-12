@@ -1,0 +1,53 @@
+# Data files (large datasets)
+data/
+
+# Generated figures
+Figure/
+figures/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE settings
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build/Distribution
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+venv/
+env/
+.env/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Model outputs
+*.pkl
+*.pt
+*.pth
+*.h5
+*.onnx
+checkpoints/
+
+# Temporary files
+*.tmp
+*.temp
+
