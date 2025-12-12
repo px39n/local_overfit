@@ -1,6 +1,7 @@
 # Local Overfit - Figure Generation Code
 
 [![DOI](https://zenodo.org/badge/1115351546.svg)](https://doi.org/10.5281/zenodo.17915486)
+[![Data DOI](https://img.shields.io/badge/Data-10.5281%2Fzenodo.17915696-blue)](https://doi.org/10.5281/zenodo.17915696)
 
 This repository contains the code for generating all figures in the paper:
 
