@@ -1,6 +1,8 @@
 # Local Overfit - Figure Generation Code
 
-This repository contains the code and data for generating all figures in the paper:
+[![DOI](https://zenodo.org/badge/1115351546.svg)](https://doi.org/10.5281/zenodo.17915486)
+
+This repository contains the code for generating all figures in the paper:
 
 **"Countering Local Overfitting for Equitable Spatiotemporal Modeling"**
 
@@ -119,9 +121,9 @@ The `og-learn` package implements the OG framework described in the paper, enabl
 
 | | |
 |---|---|
-| **Repository** | [github.com/yourusername/og-learn](https://github.com/yourusername/og-learn) |
+| **Repository** | [github.com/px39n/og-learn](https://github.com/px39n/og-learn) |
 | **Installation** | `pip install og-learn` |
-| **Documentation** | [og-learn.readthedocs.io](https://og-learn.readthedocs.io) |
+| **Documentation** | [px39n.github.io/og-learn](https://px39n.github.io/og-learn) |
 
 ```python
 from og_learn import OGFramework
@@ -148,9 +150,9 @@ The `geoequity` package provides tools for diagnosing spatial equity in ML model
 
 | | |
 |---|---|
-| **Repository** | [github.com/yourusername/geoequity](https://github.com/yourusername/geoequity) |
+| **Repository** | [github.com/px39n/geoequity](https://github.com/px39n/geoequity) |
 | **Installation** | `pip install geoequity` |
-| **Documentation** | [geoequity.readthedocs.io](https://geoequity.readthedocs.io) |
+| **Documentation** | [px39n.github.io/geoequity](https://px39n.github.io/geoequity) |
 
 ```python
 from geoequity import AccuracySurface
