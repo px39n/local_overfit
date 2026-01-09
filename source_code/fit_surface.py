@@ -93,12 +93,12 @@ def prepare_spatial_features(df, model_names, split_by='grid', include_sampling_
     
     df_copy = df_copy.dropna(subset=group_cols)
     
-    # If need sampling features, assign bins
+    # If need sampling features, assign bins and add sufficiency_bin to grouping
     if include_sampling_features and bins_intervals is not None:
         sparsity_bins_edges, suff_to_bin = bins_intervals
         df_copy['sparsity_bin'] = pd.cut(df_copy['sparsity'], bins=sparsity_bins_edges, labels=False)
         df_copy['sufficiency_bin'] = df_copy['sufficiency'].map(suff_to_bin)
-        group_cols = group_cols + ['sufficiency_bin']
+        group_cols = group_cols + ['sufficiency_bin']  # Key: add sufficiency_bin to grouping!
     
     results_dict = {}
     
@@ -137,6 +137,9 @@ def prepare_spatial_features(df, model_names, split_by='grid', include_sampling_
             if include_sampling_features and bins_intervals is not None:
                 result_row['sparsity'] = group['sparsity'].mean()
                 result_row['sufficiency_log'] = np.log10(group['sufficiency'].mean())
+                # Preserve bin info (same within group)
+                result_row['sparsity_bin'] = group['sparsity_bin'].iloc[0]
+                result_row['sufficiency_bin'] = group['sufficiency_bin'].iloc[0]
             
             results.append(result_row)
         
@@ -149,65 +152,58 @@ def prepare_spatial_features(df, model_names, split_by='grid', include_sampling_
 def prepare_sampling_features_space(bins_intervals, df, model_names, split_by='grid', 
                                     resolution=None, use_seeds=False, clip=None):
     """
-    Prepare training data with sampling features for TwoStageModel Stage 1.
+    Two-stage aggregation: spatial grid first, then sufficiency×sparsity bins.
+    
+    This is the spatial-enhanced version of prepare_sampling_features:
+    - prepare_sampling_features: directly aggregate raw data by sufficiency×sparsity
+    - prepare_sampling_features_space: spatial aggregation → then sufficiency×sparsity aggregation
+    
+    Args:
+        bins_intervals: (sparsity_bins_edges, suff_to_bin)
+        df: Training data
+        model_names: List of model names
+        split_by: 'grid' or 'station'
+        resolution: [lon_bins, lat_bins], default [10, 10]
+        use_seeds: Compatibility parameter (unused)
+        clip: R² clipping range [min, max]
     
     Returns:
-        {model_name: DataFrame with [longitude, latitude, sufficiency_log, sparsity, r2]}
+        {model_name: DataFrame with [sufficiency_log, sparsity, longitude, latitude, 
+                                     sufficiency_bin, sparsity_bin, r2]}
     """
-    if resolution is None:
-        resolution = [10, 10]
+    # Step 1: Call prepare_spatial_features to get spatially aggregated data
+    spatial_results = prepare_spatial_features(
+        df, model_names,
+        split_by=split_by,
+        include_sampling_features=True,
+        bins_intervals=bins_intervals,
+        resolution=resolution,
+        clip=clip
+    )
     
-    sparsity_bins_edges, suff_to_bin = bins_intervals
-    df_copy = df.copy()
-    
-    # Add bins
-    df_copy['sparsity_bin'] = pd.cut(df_copy['sparsity'], bins=sparsity_bins_edges, labels=False)
-    df_copy['sufficiency_bin'] = df_copy['sufficiency'].map(suff_to_bin)
-    
-    if split_by == 'grid':
-        df_copy['longitude_bin'] = pd.cut(df_copy['longitude'], bins=resolution[0], labels=False)
-        df_copy['latitude_bin'] = pd.cut(df_copy['latitude'], bins=resolution[1], labels=False)
-        group_cols = ['longitude_bin', 'latitude_bin', 'sufficiency_bin']
-    else:
-        if 'Site_number' in df_copy.columns:
-            df_copy['station_id'] = df_copy['Site_number']
-        else:
-            df_copy['station_id'] = df_copy.groupby(['longitude', 'latitude']).ngroup()
-        group_cols = ['station_id', 'sufficiency_bin']
-    
-    df_copy = df_copy.dropna(subset=group_cols + ['sparsity_bin'])
-    
+    # Step 2: Further aggregate spatial results by sufficiency×sparsity bins
     results_dict = {}
     
-    for model_name in model_names:
-        model_col = f'predicted_{model_name}'
-        if model_col not in df_copy.columns:
-            continue
+    for model_name, df_spatial in spatial_results.items():
+        # df_spatial already contains: longitude, latitude, sufficiency_log, sparsity, 
+        #                               sufficiency_bin, sparsity_bin, r2
+        
+        # Group by sufficiency_bin and sparsity_bin
+        grouped = df_spatial.groupby(['sufficiency_bin', 'sparsity_bin'])
         
         results = []
-        
-        for name, group in df_copy.groupby(group_cols):
-            if len(group) < 3:
+        for (suff_bin, spar_bin), group in grouped:
+            if len(group) < 1:
                 continue
-            
-            observed = group['observed'].values
-            predicted = group[model_col].values
-            valid_mask = ~(np.isnan(observed) | np.isnan(predicted))
-            
-            if valid_mask.sum() < 5:
-                continue
-            
-            r2 = r2_score(observed[valid_mask], predicted[valid_mask])
-            
-            if clip is not None and len(clip) == 2:
-                r2 = np.clip(r2, clip[0], clip[1])
             
             results.append({
                 'longitude': group['longitude'].mean(),
                 'latitude': group['latitude'].mean(),
-                'sufficiency_log': np.log10(group['sufficiency'].mean()),
+                'sufficiency_log': group['sufficiency_log'].mean(),
                 'sparsity': group['sparsity'].mean(),
-                'r2': r2,
+                'sufficiency_bin': suff_bin,
+                'sparsity_bin': spar_bin,
+                'r2': group['r2'].mean(),  # Average R² across spatial cells
                 'count': len(group)
             })
         
@@ -371,6 +367,23 @@ class TwoStageModel:
             stage2_score = r2_score(y_true, y_final_pred)
         
         return stage1_score, stage2_score
+    
+    def predict_stage1_only(self, X_density_features):
+        """
+        Predict R² using only Stage 1 (GAM) model.
+        
+        Args:
+            X_density_features: Array of shape (n_samples, 1 or 2)
+                                If single_sufficiency: [sparsity] or [[sufficiency_log, sparsity]]
+        
+        Returns:
+            Predicted R² values from GAM only
+        """
+        if self.gam_model is None:
+            raise ValueError("GAM model not fitted. Call fit() first.")
+        
+        X_density_scaled = self.gam_scaler.transform(X_density_features)
+        return self.gam_model.predict(X_density_scaled)
     
     def predict(self, X_spatial, sparsity_values, sufficiency_log_values=None):
         """
