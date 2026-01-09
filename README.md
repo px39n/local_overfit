@@ -92,6 +92,12 @@ jupyter notebook main_figures.ipynb
 | `Analysis/validation/df_analysis.pkl` | Accuracy analysis across conditions | Fig 5a-d |
 | `Analysis/Figure5_Region_multi_sufficiency/*.csv` | Region-based CV results | Fig 5e |
 
+
+
+All datasets for this paper are available on Zenodo: [https://doi.org/10.5281/zenodo.17915696](https://doi.org/10.5281/zenodo.17915696)
+
+
+
 ## Citation
 
 If you use this code, please cite:
