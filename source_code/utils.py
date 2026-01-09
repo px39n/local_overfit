@@ -196,9 +196,8 @@ def load_station_data() -> pd.DataFrame:
     Returns:
         pd.DataFrame: Station data with 22 features
     """
-    path = get_data_path("training/Site_Observation_with_feature.pkl")
+    path = get_data_path("station_locations.pkl")
     df = pkl.load(open(path, 'rb'))
-    df["time"] = pd.to_datetime(df["time"])
     for col in df.select_dtypes(include=["float64", "int64"]).columns:
         df[col] = df[col].astype("float32")
     return df
@@ -210,7 +209,7 @@ def load_ozone_grid() -> xr.Dataset:
     Returns:
         xr.Dataset: Ozone data at 10km resolution
     """
-    path = get_data_path("ozone.nc")
+    path = get_data_path("ozone_density_calculated.nc")
     return xr.open_dataset(path)
 
 def load_map_boundaries() -> gpd.GeoDataFrame:
@@ -463,14 +462,10 @@ def prepare_figure4c_data(data_dir=None, time_range=None, sample=100000, seed=76
         ]
     
     # Load data
-    df = pkl.load(open(data_dir / 'training/Site_Observation_with_feature.pkl', 'rb'))
-    df["time"] = pd.to_datetime(df["time"])
+    df = pkl.load(open(data_dir / 'station_locations.pkl', 'rb'))
     for col in df.select_dtypes(include=["float64", "int64"]).columns:
         df[col] = df[col].astype("float32")
     
-    # Filter by time range
-    time_mask = (df["time"] >= time_range[0]) & (df["time"] <= time_range[1])
-    df = df[time_mask].copy()
     
     # Sample data
     np.random.seed(seed)

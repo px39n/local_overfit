@@ -131,15 +131,15 @@ def plot_station_distribution(
     
     # Load data if not provided
     if df is None:
-        df = pkl.load(open(DATA_DIR / "training/Site_Observation_with_feature.pkl", 'rb'))
-        df["time"] = pd.to_datetime(df["time"])
+        df = pkl.load(open(DATA_DIR / "station_locations.pkl", 'rb'))
+
     
     if states is None:
         states = gpd.read_file(DATA_DIR / "ne_10m_land.shp")
     
     # Calculate sparsity map if not provided
     if ds_sparsity is None:
-        ds_ozone = xr.open_dataset(DATA_DIR / "ozone.nc")
+        ds_ozone = xr.open_dataset(DATA_DIR / "ozone_density_calculated.nc")
         print("Calculating sparsity map...")
         ds_sparsity = calculate_sparsity_map(
             df, ds_ozone, reference_idx=None, radius=500, 
@@ -391,9 +391,8 @@ def plot_density_comparison(
     
     # Load and prepare data if not provided
     if df is None:
-        df = pkl.load(open(DATA_DIR / "training/Site_Observation_with_feature.pkl", 'rb'))
-        df["time"] = pd.to_datetime(df["time"])
-    
+        df = pkl.load(open(DATA_DIR / "station_locations.pkl", 'rb'))
+
     # Calculate station density if not in dataframe
     if density_col not in df.columns:
         print(f"Calculating station density (radius={radius}km)...")
@@ -404,7 +403,7 @@ def plot_density_comparison(
     
     # Calculate sparsity map if not provided
     if ds_sparsity is None:
-        ds_ozone = xr.open_dataset(DATA_DIR / "ozone.nc")
+        ds_ozone = xr.open_dataset(DATA_DIR / "ozone_density_calculated.nc")
         print("Calculating sparsity map...")
         ds_sparsity = calculate_sparsity_map(
             df, ds_ozone, reference_idx=None, radius=radius,
@@ -751,8 +750,7 @@ def plot_density_vs_r2(
         project_path = str(DATA_DIR / "appendix/represent_10CV_100k")
     
     if df is None:
-        df = pkl.load(open(DATA_DIR / "training/Site_Observation_with_feature.pkl", 'rb'))
-        df["time"] = pd.to_datetime(df["time"])
+        df = pkl.load(open(DATA_DIR / "station_locations.pkl", 'rb'))
     
     if strategies is None:
         strategies = ['train', 'Sample', 'Site', 'Grid', 'Spatiotemporal_block']

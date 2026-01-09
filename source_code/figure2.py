@@ -192,7 +192,7 @@ def _plot_strategy_on_axis(axis, df, strategy, x_col, y_col,
 # =============================================================================
 
 def plot_figure2(param_project_path="data/appendix/5CV_validation_vs_parameter",
-                 epoch_project_path="data/appendix/5-Fold-Epoch",
+                 epoch_project_path="data/appendix/5-Fold-Epochs-reduced",
                  figsize=(12, 10),
                  config=1,
                  save_path=None):

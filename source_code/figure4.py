@@ -31,7 +31,7 @@ from .appendix import (
 )
 
 
-def figure4_capacity(epoch_project_path="data/appendix/5-Fold-Epoch",
+def figure4_capacity(epoch_project_path="data/appendix/5-Fold-Epochs-reduced",
                      figsize=(12, 10),
                      config=1,
                      save_path=None):
@@ -370,7 +370,7 @@ def figure4_parameter13(param_project_path="data/appendix/5CV_validation_vs_para
     return fig, axes
 
 
-def figure4_capacity_13(epoch_project_path="data/appendix/5-Fold-Epoch",
+def figure4_capacity_13(epoch_project_path="data/appendix/5-Fold-Epochs-reduced",
                         figsize=(15, 5),
                         config=1,
                         save_path=None,
@@ -618,7 +618,7 @@ def plot_figure4a(param_project_path="data/appendix/5CV_validation_vs_parameter"
     return fig, ax
 
 
-def plot_figure4b(epoch_project_path="data/appendix/5-Fold-nn_grid/epoch_analysis",
+def plot_figure4b(epoch_project_path="data/appendix/5-Fold-Epochs-full/epoch_analysis",
                   figsize=(4.5, 2.3),
                   config=2,
                   save_path=None,

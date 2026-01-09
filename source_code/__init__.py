@@ -10,6 +10,7 @@ from .figure2 import *
 from .figure3 import *
 from .figure4 import *
 from .figure5 import *
+from .figure5_quantile import *
 
 # Supplementary/Appendix
 from .appendix import *

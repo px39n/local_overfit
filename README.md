@@ -70,8 +70,8 @@ jupyter notebook main_figures.ipynb
 
 | File | Description | Used By |
 |------|-------------|---------|
-| `training/Site_Observation_with_feature.pkl` | Station observations with 22 features | Fig 1a, 1b |
-| `ozone.nc` | Gridded ozone data (10km resolution) | Fig 1b, 5b, 5d |
+| `station_locations.pkl` | Station locations and IDs| Fig 1a, 1b |
+| `ozone_density_calculated.nc` | Gridded ozone data (10km resolution) | Fig 1b, 5b, 5d |
 | `ne_10m_land.shp` | Natural Earth land boundaries | All map plots |
 
 ### Experimental Results
@@ -80,8 +80,8 @@ jupyter notebook main_figures.ipynb
 |-----------|-------------|---------|
 | `appendix/represent_10CV_100k/` | 10-fold CV results (100k samples) | Fig 1c |
 | `appendix/5CV_validation_vs_parameter/` | Parameter complexity analysis | Fig 2a, 4a |
-| `appendix/5-Fold-Epoch/` | Training epoch analysis | Fig 2b |
-| `appendix/5-Fold-nn_grid/epoch_analysis/` | OG epoch analysis | Fig 4b |
+| `appendix/5-Fold-Epochs-reduced/` | Training epoch analysis for 100 epoch | Fig 2b |
+| `appendix/5-Fold-Epochs-full/epoch_analysis/` | OG epoch analysis for 200 epoch | Fig 4b |
 | `appendix/10-Fold/` | OG ensemble results (all HV×LV combos) | Fig 3 |
 | `appendix/geo_prediction/` | Spatial prediction NetCDF files | Fig 2c, 4c |
 
@@ -90,9 +90,7 @@ jupyter notebook main_figures.ipynb
 | File | Description | Used By |
 |------|-------------|---------|
 | `Analysis/validation/df_analysis.pkl` | Accuracy analysis across conditions | Fig 5a-d |
-| `Analysis/validation/df_analysis_Station.pkl` | Station-level accuracy | Fig 5 |
-| `Analysis/validation/df_analysis_Grid.pkl` | Grid-level accuracy | Fig 5 |
-| `Analysis/Figure1_Region_based/*.csv` | Region-based CV results | Fig 5e |
+| `Analysis/Figure5_Region_multi_sufficiency/*.csv` | Region-based CV results | Fig 5e |
 
 ## Citation
 
