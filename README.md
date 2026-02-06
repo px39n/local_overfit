@@ -5,7 +5,7 @@
 
 This repository contains the code for generating all figures in the paper:
 
-**"Countering Local Overfitting for Equitable Spatiotemporal Modeling"**
+**"Local Overfitting drives Spatial Inequity in Observation-based Environmental Models"**
 
 *Zhehao Liang, Stefano Castruccio, Paola Crippa*
 
@@ -103,8 +103,8 @@ All datasets for this paper are available on Zenodo: [https://doi.org/10.5281/ze
 If you use this code, please cite:
 
 ```bibtex
-@article{liang2025og,
-  title={Countering Local Overfitting for Equitable Spatiotemporal Modeling},
+@article{liang2026og,
+  title={Local Overfitting drives Spatial Inequity in Observation-based Environmental Models},
   author={Liang, Zhehao and Castruccio, Stefano and Crippa, Paola},
   journal={},
   year={2025}
