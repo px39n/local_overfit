@@ -146,7 +146,7 @@ predictions = og.predict(X_test)
 
 ### geoequity
 
-**Spatial Equity Assessment and Visualization for Machine Learning Models**
+**Local Overfitting Drives Spatially Uneven Performance in Observation-based Atmospheric Models**
 
 The `geoequity` package provides tools for diagnosing spatial equity in ML models:
 - Accuracy surface modeling (GAM + SVM)
