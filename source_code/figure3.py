@@ -24,6 +24,7 @@ from matplotlib.path import Path
 from matplotlib.cm import ScalarMappable
 from pathlib import Path as FilePath
 from typing import Tuple, Optional, List, Dict, Union
+from sklearn.metrics import r2_score
 
 # =============================================================================
 # Local path constants
@@ -149,93 +150,203 @@ def _standardize_metric_name(metric_name):
     return f'{metric_name.capitalize()} R²'
 
 
+def _standardize_metric_name_rmse(metric_name):
+    """Same as _standardize_metric_name but with RMSE suffix."""
+    standardization_map = {
+        'site': 'Site',
+        'grid': 'Region',
+        'region': 'Region',
+        'sample': 'Sample',
+        'time': 'Time',
+        'ordertime': 'OrderTime',
+        'hours': 'Hours',
+        'spatiotemporal': 'Spatiotemporal',
+        'spatiotemporal_block': 'Spatiotemporal',
+        'spatio_temporal': 'Spatiotemporal',
+        'spatio-temporal': 'Spatiotemporal',
+        'train': 'Train',
+        'cv': 'CV',
+        'random': 'Random',
+    }
+    
+    metric_lower = metric_name.lower().strip()
+    
+    if metric_lower in standardization_map:
+        return f'{standardization_map[metric_lower]} RMSE'
+    
+    return f'{metric_name.capitalize()} RMSE'
+
+
 # =============================================================================
 # Data loading
 # =============================================================================
 
-def load_og_results(project_path, metrics=["Site", "Grid"], sufficiency=None):
-    """
-    Load results from OG ablation experiment.
-    
-    Parameters
-    ----------
-    project_path : str
-        Path to the results directory
-    metrics : list of str
-        List of validation strategies to load (e.g., ["Site", "Grid"])
-    sufficiency : int or list of int, optional
-        Sufficiency value(s) to filter by.
-    
-    Returns
-    -------
-    dict
-        Dictionary with structure: {metric: {model: {'r2_mean': float, 'r2_std': float}}}
-    """
+def _load_og_results_single(project_path, metrics, sufficiency=None,
+                            score_col=None):
+    """Load results from a single project directory."""
     results = {metric: {} for metric in metrics}
-    
-    # Get all CSV files
+
     csv_pattern = os.path.join(project_path, "*.csv")
     csv_files = glob.glob(csv_pattern)
-    
-    # Skip meta files
     csv_files = [f for f in csv_files if 'meta' not in os.path.basename(f).lower()]
-    
-    # Convert sufficiency to list for easier handling
+
     if sufficiency is not None:
         if not isinstance(sufficiency, (list, tuple)):
             sufficiency = [sufficiency]
-    
+
     for csv_file in csv_files:
         basename = os.path.basename(csv_file)
         model_name = basename.replace('.csv', '')
-        
+
         try:
             df = pd.read_csv(csv_file)
-            
-            # Filter by sufficiency if specified
+
             if sufficiency is not None and 'sample_size' in df.columns:
                 df = df[df['sample_size'].isin(sufficiency)]
-            
-            # Process each metric (validation strategy)
+
             for metric in metrics:
-                # Filter by validation column
                 if 'validation' in df.columns:
                     metric_df = df[df['validation'] == metric]
                 elif 'strategy' in df.columns:
                     metric_df = df[df['strategy'] == metric]
                 else:
                     continue
-                
-                # Calculate mean and std of R2
-                if 'r2_score' in metric_df.columns:
-                    r2_col = 'r2_score'
-                elif 'r2' in metric_df.columns:
-                    r2_col = 'r2'
-                elif 'R2' in metric_df.columns:
-                    r2_col = 'R2'
+
+                if score_col is not None:
+                    col = score_col if score_col in metric_df.columns else None
                 else:
+                    if 'r2_score' in metric_df.columns:
+                        col = 'r2_score'
+                    elif 'r2' in metric_df.columns:
+                        col = 'r2'
+                    elif 'R2' in metric_df.columns:
+                        col = 'R2'
+                    else:
+                        col = None
+
+                if col is None:
                     continue
-                
+
                 if len(metric_df) > 0:
                     results[metric][model_name] = {
-                        'r2_mean': metric_df[r2_col].mean(),
-                        'r2_std': metric_df[r2_col].std()
+                        'r2_mean': metric_df[col].mean(),
+                        'r2_std': metric_df[col].std()
                     }
         except Exception as e:
             print(f"Warning: Error loading {csv_file}: {e}")
             continue
-    
+
     return results
+
+
+def load_og_results(project_path, metrics=["Site", "Grid"], sufficiency=None,
+                    score_col=None):
+    """
+    Load results from OG ablation experiment.
+    
+    Parameters
+    ----------
+    project_path : str or list of str
+        Path(s) to the results directory. When a list is given, results are
+        averaged across all paths (e.g. for multi-year averaging).
+    metrics : list of str
+        List of validation strategies to load (e.g., ["Site", "Grid"])
+    sufficiency : int or list of int, optional
+        Sufficiency value(s) to filter by.
+    score_col : str, optional
+        Column name to use as score. If None, auto-detects r2_score/r2/R2.
+        Use 'rmse' to load RMSE values.
+    
+    Returns
+    -------
+    dict
+        Dictionary with structure: {metric: {model: {'r2_mean': float, 'r2_std': float}}}
+        (keys are always 'r2_mean'/'r2_std' regardless of score_col, for API compatibility)
+    """
+    if isinstance(project_path, (list, tuple)):
+        all_results = [_load_og_results_single(p, metrics, sufficiency, score_col)
+                       for p in project_path]
+        merged = {metric: {} for metric in metrics}
+        all_models = set()
+        for res in all_results:
+            for metric in metrics:
+                all_models.update(res[metric].keys())
+        for metric in metrics:
+            for model in all_models:
+                means, stds = [], []
+                for res in all_results:
+                    entry = res[metric].get(model)
+                    if entry is not None:
+                        means.append(entry['r2_mean'])
+                        stds.append(entry['r2_std'])
+                if means:
+                    merged[metric][model] = {
+                        'r2_mean': np.mean(means),
+                        'r2_std': np.mean(stds),
+                    }
+        return merged
+
+    return _load_og_results_single(project_path, metrics, sufficiency, score_col)
 
 
 # =============================================================================
 # Main plotting function
 # =============================================================================
 
+def _compute_ensemble_from_npz_single(project_path, model_keys, metric, n_folds=10):
+    """Compute ensemble R² from a single project directory."""
+    base = FilePath(project_path)
+    r2s = []
+    for fold in range(1, n_folds + 1):
+        npz_name = f"{metric}_size_500000_fold_{fold}.npz"
+        preds = []
+        y_true = None
+        for key in model_keys:
+            p = base / key / npz_name
+            if not p.exists():
+                break
+            try:
+                d = np.load(p, allow_pickle=True)
+                preds.append(d["y_pred"].flatten())
+                if y_true is None:
+                    y_true = d["y_true"].flatten()
+            except Exception:
+                break
+        if len(preds) == len(model_keys) and y_true is not None:
+            y_ens = np.mean(preds, axis=0)
+            r2s.append(r2_score(y_true, y_ens))
+    if r2s:
+        return {"r2_mean": np.mean(r2s), "r2_std": np.std(r2s)}
+    return None
+
+
+def _compute_ensemble_from_npz(project_path, model_keys, metric, n_folds=10):
+    """
+    Compute ensemble R² by averaging NPZ predictions across models per fold.
+
+    When *project_path* is a list, results are averaged across paths.
+    Returns dict with 'r2_mean' and 'r2_std', or None if data is missing.
+    """
+    if isinstance(project_path, (list, tuple)):
+        means, stds = [], []
+        for p in project_path:
+            res = _compute_ensemble_from_npz_single(p, model_keys, metric, n_folds)
+            if res is not None:
+                means.append(res["r2_mean"])
+                stds.append(res["r2_std"])
+        if means:
+            return {"r2_mean": np.mean(means), "r2_std": np.mean(stds)}
+        return None
+    return _compute_ensemble_from_npz_single(project_path, model_keys, metric, n_folds)
+
+
 def plot_og_ablation(project_path, dl_group, ml_group, metrics=["Site", "Grid"], 
                      figsize=None, save_path=None, x_lim=None, y_lim=None, early_stop=False,
                      x_locator=None, y_locator=None, n_folds=10, color_metric=None, color_lim=None,
-                     color_boundaries=None, cmap='Blues', bold=False, sufficiency=None):
+                     color_boundaries=None, cmap='Blues', bold=False, sufficiency=None,
+                     show_ensemble_og=False, show_ensemble_mldl=False,
+                     show_ensemble_ogmls=False, show_ensemble_dlmls=False,
+                     early_type="test", mode="raw"):
     """
     Plot OG ablation study results comparing Site vs Grid validation.
     
@@ -278,6 +389,9 @@ def plot_og_ablation(project_path, dl_group, ml_group, metrics=["Site", "Grid"],
         If True, use bold font weight
     sufficiency : int or list of int, optional
         Sufficiency value(s) to filter by
+    mode : str, default="raw"
+        "raw" displays R² as decimal (e.g. 0.52). "percent" multiplies
+        all values by 100 so axes read as percentages (e.g. 52%).
     
     Returns
     -------
@@ -286,7 +400,7 @@ def plot_og_ablation(project_path, dl_group, ml_group, metrics=["Site", "Grid"],
     Example
     -------
     >>> fig, axes = plot_og_ablation(
-    ...     project_path="data/appendix/10-Fold",
+    ...     project_path="data/appendix/10-Fold-ablation",
     ...     dl_group=['mlp', 'resnet', 'transformer'],
     ...     ml_group=['biglightgbm', 'bigxgboost', 'bigcatboost'],
     ...     metrics=["Site", "Grid"],
@@ -299,6 +413,10 @@ def plot_og_ablation(project_path, dl_group, ml_group, metrics=["Site", "Grid"],
     ...     save_path="figures/figure3.svg"
     ... )
     """
+    early_suffix = {"test": "_early", "train": "_tearly"}.get(early_type, "_early")
+    pct = mode == "percent"
+    _s = 100.0 if pct else 1.0
+
     # Set global font sizes
     plt.rc('font', size=12)
     plt.rc('axes', titlesize=13)
@@ -366,7 +484,7 @@ def plot_og_ablation(project_path, dl_group, ml_group, metrics=["Site", "Grid"],
     
     if color_metric:
         if color_boundaries is not None:
-            boundaries = sorted(color_boundaries)
+            boundaries = sorted([b * _s for b in color_boundaries])
             vmin, vmax = boundaries[0], boundaries[-1]
             norm = BoundaryNorm(boundaries, colormap.N, clip=True)
             print(f"✓ Using non-uniform color scale with {len(boundaries)} boundaries")
@@ -375,7 +493,7 @@ def plot_og_ablation(project_path, dl_group, ml_group, metrics=["Site", "Grid"],
             all_color_values = []
             for dl_model in dl_group:
                 for ml_model in ml_group:
-                    dl_key = f"{dl_model.lower()}_early" if early_stop else dl_model.lower()
+                    dl_key = f"{dl_model.lower()}{early_suffix}" if early_stop else dl_model.lower()
                     ml_key = ml_model.lower()
                     hybrid_key = f"{dl_model.lower()}+{ml_model.lower()}"
                     
@@ -383,15 +501,15 @@ def plot_og_ablation(project_path, dl_group, ml_group, metrics=["Site", "Grid"],
                         if key in color_results[color_metric]:
                             val = color_results[color_metric][key].get('r2_mean')
                             if val is not None:
-                                all_color_values.append(val)
+                                all_color_values.append(val * _s)
             
             if all_color_values:
                 vmin, vmax = min(all_color_values), max(all_color_values)
             else:
-                vmin, vmax = 0, 1
+                vmin, vmax = 0, 1 * _s
             norm = Normalize(vmin=vmin, vmax=vmax)
         else:
-            vmin, vmax = color_lim
+            vmin, vmax = color_lim[0] * _s, color_lim[1] * _s
             norm = Normalize(vmin=vmin, vmax=vmax)
     
     axes = []
@@ -406,7 +524,7 @@ def plot_og_ablation(project_path, dl_group, ml_group, metrics=["Site", "Grid"],
             
             # Get model keys
             if early_stop:
-                dl_key = f"{dl_model.lower()}_early"
+                dl_key = f"{dl_model.lower()}{early_suffix}"
             else:
                 dl_key = dl_model.lower()
             
@@ -426,22 +544,28 @@ def plot_og_ablation(project_path, dl_group, ml_group, metrics=["Site", "Grid"],
                         break
             
             # Extract data for x-axis (first metric)
-            dl_x = results[metrics[0]].get(dl_key, {}).get('r2_mean', None)
-            ml_x = results[metrics[0]].get(ml_key, {}).get('r2_mean', None)
-            hybrid_x = results[metrics[0]].get(hybrid_key, {}).get('r2_mean', None)
+            _raw = results[metrics[0]].get(dl_key, {}).get('r2_mean', None)
+            dl_x = _raw * _s if _raw is not None else None
+            _raw = results[metrics[0]].get(ml_key, {}).get('r2_mean', None)
+            ml_x = _raw * _s if _raw is not None else None
+            _raw = results[metrics[0]].get(hybrid_key, {}).get('r2_mean', None)
+            hybrid_x = _raw * _s if _raw is not None else None
             
-            dl_x_std = results[metrics[0]].get(dl_key, {}).get('r2_std', 0)
-            ml_x_std = results[metrics[0]].get(ml_key, {}).get('r2_std', 0)
-            hybrid_x_std = results[metrics[0]].get(hybrid_key, {}).get('r2_std', 0)
+            dl_x_std = results[metrics[0]].get(dl_key, {}).get('r2_std', 0) * _s
+            ml_x_std = results[metrics[0]].get(ml_key, {}).get('r2_std', 0) * _s
+            hybrid_x_std = results[metrics[0]].get(hybrid_key, {}).get('r2_std', 0) * _s
             
             # Extract data for y-axis (second metric)
-            dl_y = results[metrics[1]].get(dl_key, {}).get('r2_mean', None)
-            ml_y = results[metrics[1]].get(ml_key, {}).get('r2_mean', None)
-            hybrid_y = results[metrics[1]].get(hybrid_key, {}).get('r2_mean', None)
+            _raw = results[metrics[1]].get(dl_key, {}).get('r2_mean', None)
+            dl_y = _raw * _s if _raw is not None else None
+            _raw = results[metrics[1]].get(ml_key, {}).get('r2_mean', None)
+            ml_y = _raw * _s if _raw is not None else None
+            _raw = results[metrics[1]].get(hybrid_key, {}).get('r2_mean', None)
+            hybrid_y = _raw * _s if _raw is not None else None
             
-            dl_y_std = results[metrics[1]].get(dl_key, {}).get('r2_std', 0)
-            ml_y_std = results[metrics[1]].get(ml_key, {}).get('r2_std', 0)
-            hybrid_y_std = results[metrics[1]].get(hybrid_key, {}).get('r2_std', 0)
+            dl_y_std = results[metrics[1]].get(dl_key, {}).get('r2_std', 0) * _s
+            ml_y_std = results[metrics[1]].get(ml_key, {}).get('r2_std', 0) * _s
+            hybrid_y_std = results[metrics[1]].get(hybrid_key, {}).get('r2_std', 0) * _s
             
             # Calculate standard error of mean (SEM)
             sem_factor = 1.0 / np.sqrt(n_folds)
@@ -449,9 +573,12 @@ def plot_og_ablation(project_path, dl_group, ml_group, metrics=["Site", "Grid"],
             # Extract color data if color_metric is specified
             dl_color = ml_color = hybrid_color = None
             if color_results:
-                dl_color = color_results[color_metric].get(dl_key, {}).get('r2_mean', None)
-                ml_color = color_results[color_metric].get(ml_key, {}).get('r2_mean', None)
-                hybrid_color = color_results[color_metric].get(hybrid_key, {}).get('r2_mean', None)
+                _raw = color_results[color_metric].get(dl_key, {}).get('r2_mean', None)
+                dl_color = _raw * _s if _raw is not None else None
+                _raw = color_results[color_metric].get(ml_key, {}).get('r2_mean', None)
+                ml_color = _raw * _s if _raw is not None else None
+                _raw = color_results[color_metric].get(hybrid_key, {}).get('r2_mean', None)
+                hybrid_color = _raw * _s if _raw is not None else None
             
             # Plot DL model
             if dl_x is not None and dl_y is not None:
@@ -494,10 +621,392 @@ def plot_og_ablation(project_path, dl_group, ml_group, metrics=["Site", "Grid"],
             # Plot Hybrid model
             if hybrid_x is not None and hybrid_y is not None:
                 is_composite = isinstance(markers['hybrid'], tuple)
+                og_size = sizes['hybrid']
                 
                 if color_metric and hybrid_color is not None:
                     point_color = colormap(norm(hybrid_color))
                     
+                    if is_composite:
+                        ax.scatter(hybrid_x, hybrid_y, s=og_size, marker=markers['hybrid'][0],
+                                  c=[point_color], edgecolors='black', linewidths=0.8,
+                                  alpha=0.9, label='OG', zorder=5)
+                        y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.005
+                        y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.005
+                        ax.scatter(hybrid_x, hybrid_y + y_offset, s=og_size*0.7, marker=markers['hybrid'][1],
+                                  facecolors='none', edgecolors="white", linewidths=1.5,
+                                  alpha=1, zorder=6)
+                    else:
+                        ax.scatter(hybrid_x, hybrid_y, s=og_size, marker=markers['hybrid'],
+                                  c=[point_color], edgecolors='black', linewidths=0.8,
+                                  alpha=0.9, label='OG', zorder=5)
+                    
+                    ax.errorbar(hybrid_x, hybrid_y,
+                               xerr=hybrid_x_std * sem_factor, yerr=hybrid_y_std * sem_factor,
+                               fmt='none', ecolor='gray', capsize=3, alpha=0.3, zorder=2)
+                else:
+                    if is_composite:
+                        ax.scatter(hybrid_x, hybrid_y, s=og_size, marker=markers['hybrid'][0],
+                                  color=colors['hybrid'], edgecolors='black', linewidths=0.8,
+                                  alpha=0.9, label='OG', zorder=5)
+                        y_offset = (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.005
+                        ax.scatter(hybrid_x, hybrid_y + y_offset, s=og_size*0.7, marker=markers['hybrid'][1],
+                                  facecolors='none', edgecolors='white', linewidths=2,
+                                  alpha=1, zorder=6)
+                        ax.errorbar(hybrid_x, hybrid_y,
+                                   xerr=hybrid_x_std * sem_factor, yerr=hybrid_y_std * sem_factor,
+                                   fmt='none', ecolor='gray', capsize=3, alpha=0.3, zorder=2)
+                    else:
+                        ax.errorbar(hybrid_x, hybrid_y,
+                                   xerr=hybrid_x_std * sem_factor, yerr=hybrid_y_std * sem_factor,
+                                   fmt=markers['hybrid'], color=colors['hybrid'],
+                                   markersize=np.sqrt(og_size), capsize=3,
+                                   alpha=0.9, label='OG', zorder=5, linewidth=1.5)
+                
+                # Draw arrow from DL to Hybrid (showing improvement)
+                if dl_x is not None and dl_y is not None:
+                    ax.annotate(
+                        '', xy=(hybrid_x, hybrid_y),
+                        xytext=(dl_x, dl_y),
+                        arrowprops=dict(
+                            arrowstyle='->', color="purple",
+                            lw=2.2, alpha=0.4
+                        ),
+                        zorder=2
+                    )
+            
+            # --- Ens(DL+ML) diamond point ---
+            if show_ensemble_mldl:
+                ens2_keys = [dl_key, ml_key]
+                ens2_x = _compute_ensemble_from_npz(project_path, ens2_keys, metrics[0], n_folds)
+                ens2_y = _compute_ensemble_from_npz(project_path, ens2_keys, metrics[1], n_folds)
+                if ens2_x is not None and ens2_y is not None:
+                    e2x, e2y = ens2_x["r2_mean"] * _s, ens2_y["r2_mean"] * _s
+                    e2x_std, e2y_std = ens2_x["r2_std"] * _s, ens2_y["r2_std"] * _s
+                    if color_metric:
+                        ens2_c = _compute_ensemble_from_npz(project_path, ens2_keys, color_metric, n_folds)
+                        e2c = ens2_c["r2_mean"] * _s if ens2_c else None
+                        p2c = colormap(norm(e2c)) if e2c is not None else '#2CA02C'
+                        ax.scatter(e2x, e2y, s=sizes['hybrid'] * 0.7, marker='D',
+                                   c=[p2c], edgecolors='black', linewidths=0.8,
+                                   alpha=0.9, zorder=6)
+                    else:
+                        ax.scatter(e2x, e2y, s=sizes['hybrid'] * 0.7, marker='D',
+                                   color='#2CA02C', edgecolors='black', linewidths=0.8,
+                                   alpha=0.9, zorder=6)
+                    ax.errorbar(e2x, e2y,
+                                xerr=e2x_std * sem_factor, yerr=e2y_std * sem_factor,
+                                fmt='none', ecolor='gray', capsize=3, alpha=0.3, zorder=2)
+
+            # --- Ens(DL+ML+OG) hexagram point + arrow ---
+            if show_ensemble_og:
+                ens_keys = [dl_key, ml_key, hybrid_key]
+                ens_x_data = _compute_ensemble_from_npz(project_path, ens_keys, metrics[0], n_folds)
+                ens_y_data = _compute_ensemble_from_npz(project_path, ens_keys, metrics[1], n_folds)
+                if ens_x_data is not None and ens_y_data is not None:
+                    ex, ey = ens_x_data["r2_mean"] * _s, ens_y_data["r2_mean"] * _s
+
+                    if hybrid_x is not None and hybrid_y is not None:
+                        ax.annotate(
+                            '', xy=(ex, ey), xytext=(hybrid_x, hybrid_y),
+                            arrowprops=dict(arrowstyle='->', color="dodgerblue",
+                                            lw=2.2, alpha=0.4),
+                            zorder=2
+                        )
+
+            # --- Ens(OG+MLs) arrow: OG -> avg(OG + all MLs) ---
+            if show_ensemble_ogmls:
+                all_ml_keys = [m.lower() for m in ml_group]
+                ogmls_keys = [hybrid_key] + all_ml_keys
+                ogmls_x = _compute_ensemble_from_npz(project_path, ogmls_keys, metrics[0], n_folds)
+                ogmls_y = _compute_ensemble_from_npz(project_path, ogmls_keys, metrics[1], n_folds)
+                if ogmls_x is not None and ogmls_y is not None and hybrid_x is not None:
+                    ax.annotate(
+                        '', xy=(ogmls_x["r2_mean"] * _s, ogmls_y["r2_mean"] * _s),
+                        xytext=(hybrid_x, hybrid_y),
+                        arrowprops=dict(arrowstyle='->', color="dodgerblue",
+                                        lw=2.2, alpha=0.4),
+                        zorder=2
+                    )
+
+            # --- Ens(DL+MLs) arrow: DL -> avg(DL + all MLs) ---
+            if show_ensemble_dlmls:
+                all_ml_keys = [m.lower() for m in ml_group]
+                dlmls_keys = [dl_key] + all_ml_keys
+                dlmls_x = _compute_ensemble_from_npz(project_path, dlmls_keys, metrics[0], n_folds)
+                dlmls_y = _compute_ensemble_from_npz(project_path, dlmls_keys, metrics[1], n_folds)
+                if dlmls_x is not None and dlmls_y is not None and dl_x is not None:
+                    ax.annotate(
+                        '', xy=(dlmls_x["r2_mean"] * _s, dlmls_y["r2_mean"] * _s),
+                        xytext=(dl_x, dl_y),
+                        arrowprops=dict(arrowstyle='->', color="orange",
+                                        lw=2.2, alpha=0.4),
+                        zorder=2
+                    )
+
+            # Add diagonal reference line (x = y)
+            _diag_max = 100.0 if pct else 1.0
+            ax.plot([0, _diag_max], [0, _diag_max], '--', color='gray', alpha=0.4, lw=1, zorder=1)
+            
+            # Formatting
+            _suffix = ' (%)' if pct else ''
+            x_label = (_standardize_metric_name(metrics[0]) + _suffix) if row_idx == n_rows - 1 else ''
+            y_label = (_standardize_metric_name(metrics[1]) + _suffix) if col_idx == 0 else ''
+            fontweight = 'bold' if bold else 'normal'
+            ax.set_xlabel(x_label, fontweight=fontweight)
+            ax.set_ylabel(y_label, fontweight=fontweight)
+            
+            dl_display = _standardize_model_name(dl_model)
+            ml_display = _standardize_model_name(ml_model)
+            ax.set_title(f'{dl_display} + {ml_display}', fontsize=12, pad=8, fontweight=fontweight)
+            ax.grid(True, linestyle='--', alpha=0.3, zorder=0)
+            
+            # Set axis limits if provided
+            if x_lim is not None:
+                ax.set_xlim([v * _s for v in x_lim])
+            if y_lim is not None:
+                ax.set_ylim([v * _s for v in y_lim])
+            
+            # Set axis tick spacing if provided
+            if x_locator is not None:
+                if isinstance(x_locator, int):
+                    ax.xaxis.set_major_locator(MaxNLocator(nbins=x_locator))
+                else:
+                    ax.xaxis.set_major_locator(MultipleLocator(x_locator))
+            
+            if y_locator is not None:
+                if isinstance(y_locator, int):
+                    ax.yaxis.set_major_locator(MaxNLocator(nbins=y_locator))
+                else:
+                    ax.yaxis.set_major_locator(MultipleLocator(y_locator))
+            
+            # Legend only for top-left subplot
+            if row_idx == 0 and col_idx == 0:
+                ax.legend(loc='upper left', framealpha=0.9, fontsize=9)
+        
+        axes.append(row_axes)
+    
+    # Add colorbar if color_metric is specified
+    if color_metric:
+        sm = ScalarMappable(cmap=colormap, norm=norm)
+        sm.set_array([])
+        
+        cbar_ax = fig.add_axes([0.93, 0.15, 0.02, 0.7])
+        cbar = fig.colorbar(sm, cax=cbar_ax)
+        color_label = _standardize_metric_name(color_metric) + (' (%)' if pct else '')
+        fontweight_cbar = 'bold' if bold else 'normal'
+        cbar.set_label(color_label, fontsize=12, rotation=270, labelpad=20, fontweight=fontweight_cbar)
+        cbar.ax.tick_params(labelsize=10)
+        cbar.ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f' if pct else '%.2f'))
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"✓ Figure saved to: {save_path}")
+    
+    return fig, axes
+
+
+# =============================================================================
+# RMSE version of ablation plot
+# =============================================================================
+
+def plot_og_rmse(project_path, dl_group, ml_group, metrics=["Site", "Grid"],
+                 figsize=None, save_path=None, x_lim=None, y_lim=None, early_stop=False,
+                 x_locator=None, y_locator=None, n_folds=10, color_metric=None, color_lim=None,
+                 color_boundaries=None, cmap='Blues', bold=False, sufficiency=None,
+                 cmap_reverse=True, early_type="test"):
+    """
+    Plot OG ablation study results using RMSE (lower is better).
+
+    Same layout as plot_og_ablation (m×n grid), but axes show RMSE instead of R².
+    All parameters are identical to plot_og_ablation, plus:
+
+    Parameters
+    ----------
+    cmap_reverse : bool, default=True
+        If True, reverse the colormap so that lower RMSE (better) gets darker color.
+    """
+    plt.rc('font', size=12)
+    plt.rc('axes', titlesize=13)
+    plt.rc('axes', labelsize=12)
+    plt.rc('xtick', labelsize=10)
+    plt.rc('ytick', labelsize=10)
+    plt.rc('legend', fontsize=10)
+
+    early_suffix = {"test": "_early", "train": "_tearly"}.get(early_type, "_early")
+
+    results = load_og_results(project_path, metrics, sufficiency=sufficiency,
+                              score_col='rmse')
+
+    color_results = None
+    if color_metric:
+        color_results = load_og_results(project_path, [color_metric],
+                                        sufficiency=sufficiency, score_col='rmse')
+        print(f"✓ Loaded color metric (RMSE): {color_metric}")
+
+    if sufficiency is not None:
+        print(f"✓ Filtered by sufficiency: {sufficiency}")
+
+    print(f"✓ Loaded RMSE results for {len(results[metrics[0]])} models")
+    print(f"  Available models: {list(results[metrics[0]].keys())[:5]}...")
+
+    n_rows = len(dl_group)
+    n_cols = len(ml_group)
+
+    if figsize is None:
+        figsize = (5 * n_cols, 4 * n_rows)
+
+    fig = plt.figure(figsize=figsize)
+    if color_metric:
+        gs = gridspec.GridSpec(n_rows, n_cols, figure=fig, wspace=0.35, hspace=0.35, right=0.92)
+    else:
+        gs = gridspec.GridSpec(n_rows, n_cols, figure=fig, wspace=0.35, hspace=0.35)
+
+    colors = {
+        'dl': '#2E86AB',
+        'ml': '#A23B72',
+        'hybrid': '#F18F01'
+    }
+    markers = {
+        'dl': 'v',
+        'ml': '^',
+        'hybrid': _create_hexagram_marker()
+    }
+    sizes = {
+        'dl': 100,
+        'ml': 100,
+        'hybrid': 140
+    }
+
+    vmin, vmax = None, None
+    norm = None
+    colormap = _get_colormap(cmap) if color_metric else None
+    if colormap is not None and cmap_reverse:
+        colormap = colormap.reversed()
+
+    if color_metric:
+        if color_boundaries is not None:
+            boundaries = sorted(color_boundaries)
+            vmin, vmax = boundaries[0], boundaries[-1]
+            norm = BoundaryNorm(boundaries, colormap.N, clip=True)
+        elif color_lim is None:
+            all_color_values = []
+            for dl_model in dl_group:
+                for ml_model in ml_group:
+                    dl_key = f"{dl_model.lower()}{early_suffix}" if early_stop else dl_model.lower()
+                    ml_key = ml_model.lower()
+                    hybrid_key = f"{dl_model.lower()}+{ml_model.lower()}"
+                    for key in [dl_key, ml_key, hybrid_key]:
+                        if key in color_results[color_metric]:
+                            val = color_results[color_metric][key].get('r2_mean')
+                            if val is not None:
+                                all_color_values.append(val)
+            if all_color_values:
+                vmin, vmax = min(all_color_values), max(all_color_values)
+            else:
+                vmin, vmax = 0, 1
+            norm = Normalize(vmin=vmin, vmax=vmax)
+        else:
+            vmin, vmax = color_lim
+            norm = Normalize(vmin=vmin, vmax=vmax)
+
+    axes = []
+
+    for row_idx, dl_model in enumerate(dl_group):
+        row_axes = []
+
+        for col_idx, ml_model in enumerate(ml_group):
+            ax = fig.add_subplot(gs[row_idx, col_idx])
+            row_axes.append(ax)
+
+            if early_stop:
+                dl_key = f"{dl_model.lower()}{early_suffix}"
+            else:
+                dl_key = dl_model.lower()
+
+            ml_key = ml_model.lower()
+            hybrid_key = f"{dl_model.lower()}+{ml_model.lower()}"
+
+            if hybrid_key not in results[metrics[0]]:
+                alternative_keys = [
+                    f"{dl_model.lower()}_{ml_model.lower()}",
+                    f"{dl_model.lower()}+big{ml_model.lower()}",
+                    f"big{dl_model.lower()}+{ml_model.lower()}",
+                ]
+                for alt_key in alternative_keys:
+                    if alt_key in results[metrics[0]]:
+                        hybrid_key = alt_key
+                        break
+
+            dl_x = results[metrics[0]].get(dl_key, {}).get('r2_mean', None)
+            ml_x = results[metrics[0]].get(ml_key, {}).get('r2_mean', None)
+            hybrid_x = results[metrics[0]].get(hybrid_key, {}).get('r2_mean', None)
+
+            dl_x_std = results[metrics[0]].get(dl_key, {}).get('r2_std', 0)
+            ml_x_std = results[metrics[0]].get(ml_key, {}).get('r2_std', 0)
+            hybrid_x_std = results[metrics[0]].get(hybrid_key, {}).get('r2_std', 0)
+
+            dl_y = results[metrics[1]].get(dl_key, {}).get('r2_mean', None)
+            ml_y = results[metrics[1]].get(ml_key, {}).get('r2_mean', None)
+            hybrid_y = results[metrics[1]].get(hybrid_key, {}).get('r2_mean', None)
+
+            dl_y_std = results[metrics[1]].get(dl_key, {}).get('r2_std', 0)
+            ml_y_std = results[metrics[1]].get(ml_key, {}).get('r2_std', 0)
+            hybrid_y_std = results[metrics[1]].get(hybrid_key, {}).get('r2_std', 0)
+
+            sem_factor = 1.0 / np.sqrt(n_folds)
+
+            dl_color = ml_color = hybrid_color = None
+            if color_results:
+                dl_color = color_results[color_metric].get(dl_key, {}).get('r2_mean', None)
+                ml_color = color_results[color_metric].get(ml_key, {}).get('r2_mean', None)
+                hybrid_color = color_results[color_metric].get(hybrid_key, {}).get('r2_mean', None)
+
+            # Plot DL model
+            if dl_x is not None and dl_y is not None:
+                if color_metric and dl_color is not None:
+                    point_color = colormap(norm(dl_color))
+                    ax.scatter(dl_x, dl_y, s=sizes['dl'], marker=markers['dl'],
+                              c=[point_color], edgecolors='black', linewidths=0.5,
+                              alpha=0.9, label='LV', zorder=3)
+                    ax.errorbar(dl_x, dl_y,
+                               xerr=dl_x_std * sem_factor, yerr=dl_y_std * sem_factor,
+                               fmt='none', ecolor='gray', capsize=3, alpha=0.3, zorder=2)
+                else:
+                    ax.errorbar(
+                        dl_x, dl_y,
+                        xerr=dl_x_std * sem_factor, yerr=dl_y_std * sem_factor,
+                        fmt=markers['dl'], color=colors['dl'],
+                        markersize=np.sqrt(sizes['dl']), capsize=3,
+                        alpha=0.7, label='LV', zorder=3
+                    )
+
+            # Plot ML model
+            if ml_x is not None and ml_y is not None:
+                if color_metric and ml_color is not None:
+                    point_color = colormap(norm(ml_color))
+                    ax.scatter(ml_x, ml_y, s=sizes['ml'], marker=markers['ml'],
+                              c=[point_color], edgecolors='black', linewidths=0.5,
+                              alpha=0.9, label='HV', zorder=4)
+                    ax.errorbar(ml_x, ml_y,
+                               xerr=ml_x_std * sem_factor, yerr=ml_y_std * sem_factor,
+                               fmt='none', ecolor='gray', capsize=3, alpha=0.3, zorder=2)
+                else:
+                    ax.errorbar(
+                        ml_x, ml_y,
+                        xerr=ml_x_std * sem_factor, yerr=ml_y_std * sem_factor,
+                        fmt=markers['ml'], color=colors['ml'],
+                        markersize=np.sqrt(sizes['ml']), capsize=3,
+                        alpha=0.7, label='HV', zorder=4
+                    )
+
+            # Plot Hybrid model
+            if hybrid_x is not None and hybrid_y is not None:
+                is_composite = isinstance(markers['hybrid'], tuple)
+
+                if color_metric and hybrid_color is not None:
+                    point_color = colormap(norm(hybrid_color))
                     if is_composite:
                         ax.scatter(hybrid_x, hybrid_y, s=sizes['hybrid'], marker=markers['hybrid'][0],
                                   c=[point_color], edgecolors='black', linewidths=0.8,
@@ -510,7 +1019,6 @@ def plot_og_ablation(project_path, dl_group, ml_group, metrics=["Site", "Grid"],
                         ax.scatter(hybrid_x, hybrid_y, s=sizes['hybrid'], marker=markers['hybrid'],
                                   c=[point_color], edgecolors='black', linewidths=0.8,
                                   alpha=0.9, label='OG', zorder=5)
-                    
                     ax.errorbar(hybrid_x, hybrid_y,
                                xerr=hybrid_x_std * sem_factor, yerr=hybrid_y_std * sem_factor,
                                fmt='none', ecolor='gray', capsize=3, alpha=0.3, zorder=2)
@@ -532,8 +1040,7 @@ def plot_og_ablation(project_path, dl_group, ml_group, metrics=["Site", "Grid"],
                                    fmt=markers['hybrid'], color=colors['hybrid'],
                                    markersize=np.sqrt(sizes['hybrid']), capsize=3,
                                    alpha=0.9, label='OG', zorder=5, linewidth=1.5)
-                
-                # Draw arrow from DL to Hybrid (showing improvement)
+
                 if dl_x is not None and dl_y is not None:
                     ax.annotate(
                         '', xy=(hybrid_x, hybrid_y),
@@ -544,69 +1051,64 @@ def plot_og_ablation(project_path, dl_group, ml_group, metrics=["Site", "Grid"],
                         ),
                         zorder=2
                     )
-            
-            # Add diagonal reference line (x = y)
+
+            # Diagonal reference line
             if dl_x and dl_y and ml_x and ml_y:
                 lims = [
-                    min(dl_x, ml_x, dl_y, ml_y) - 0.05,
-                    max(dl_x, ml_x, dl_y, ml_y) + 0.05
+                    min(dl_x, ml_x, dl_y, ml_y) - 0.5,
+                    max(dl_x, ml_x, dl_y, ml_y) + 0.5
                 ]
                 ax.plot(lims, lims, '--', color='gray', alpha=0.4, lw=1, zorder=1)
-            
-            # Formatting
-            x_label = _standardize_metric_name(metrics[0]) if row_idx == n_rows - 1 else ''
-            y_label = _standardize_metric_name(metrics[1]) if col_idx == 0 else ''
+
+            # Labels use RMSE suffix
+            x_label = _standardize_metric_name_rmse(metrics[0]) if row_idx == n_rows - 1 else ''
+            y_label = _standardize_metric_name_rmse(metrics[1]) if col_idx == 0 else ''
             fontweight = 'bold' if bold else 'normal'
             ax.set_xlabel(x_label, fontweight=fontweight)
             ax.set_ylabel(y_label, fontweight=fontweight)
-            
+
             dl_display = _standardize_model_name(dl_model)
             ml_display = _standardize_model_name(ml_model)
             ax.set_title(f'{dl_display} + {ml_display}', fontsize=12, pad=8, fontweight=fontweight)
             ax.grid(True, linestyle='--', alpha=0.3, zorder=0)
-            
-            # Set axis limits if provided
+
             if x_lim is not None:
                 ax.set_xlim(x_lim)
             if y_lim is not None:
                 ax.set_ylim(y_lim)
-            
-            # Set axis tick spacing if provided
+
             if x_locator is not None:
                 if isinstance(x_locator, int):
                     ax.xaxis.set_major_locator(MaxNLocator(nbins=x_locator))
                 else:
                     ax.xaxis.set_major_locator(MultipleLocator(x_locator))
-            
+
             if y_locator is not None:
                 if isinstance(y_locator, int):
                     ax.yaxis.set_major_locator(MaxNLocator(nbins=y_locator))
                 else:
                     ax.yaxis.set_major_locator(MultipleLocator(y_locator))
-            
-            # Legend only for top-left subplot
+
             if row_idx == 0 and col_idx == 0:
                 ax.legend(loc='lower right', framealpha=0.9, fontsize=9)
-        
+
         axes.append(row_axes)
-    
-    # Add colorbar if color_metric is specified
+
     if color_metric:
         sm = ScalarMappable(cmap=colormap, norm=norm)
         sm.set_array([])
-        
         cbar_ax = fig.add_axes([0.93, 0.15, 0.02, 0.7])
         cbar = fig.colorbar(sm, cax=cbar_ax)
-        color_label = _standardize_metric_name(color_metric)
+        color_label = _standardize_metric_name_rmse(color_metric)
         fontweight_cbar = 'bold' if bold else 'normal'
         cbar.set_label(color_label, fontsize=12, rotation=270, labelpad=20, fontweight=fontweight_cbar)
         cbar.ax.tick_params(labelsize=10)
         cbar.ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-    
+
     plt.tight_layout()
-    
+
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"✓ Figure saved to: {save_path}")
-    
+
     return fig, axes

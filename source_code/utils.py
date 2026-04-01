@@ -478,3 +478,116 @@ def prepare_figure4c_data(data_dir=None, time_range=None, sample=100000, seed=76
     
     return df, train_ind, test_ind
 
+
+# =============================================================================
+# RMSE Column Utilities
+# =============================================================================
+
+def add_rmse_column(folder_path, dry_run=True, verbose=True):
+    """
+    Add an ``rmse`` column to every CSV under *folder_path* by computing
+    RMSE from the matching NPZ file's ``y_true`` / ``y_pred``.
+
+    If a CSV already contains an ``rmse`` column with no NaN values the
+    file is skipped entirely (considered up-to-date).
+
+    Parameters
+    ----------
+    folder_path : str or Path
+        Root results directory (e.g. ``data/appendix/10-Fold-ablation``).
+    dry_run : bool
+        If True, only preview without writing; if False, overwrite CSVs.
+    verbose : bool
+        Print per-file progress.
+
+    Returns
+    -------
+    dict
+        ``{csv_stem: {"total": int, "filled": int, "missing": int}}``
+    """
+    from sklearn.metrics import mean_squared_error
+
+    base = Path(folder_path)
+    csv_files = sorted(f for f in base.glob("*.csv")
+                       if "meta" not in f.name.lower())
+    summary = {}
+
+    for csv_file in csv_files:
+        model_name = csv_file.stem
+        npz_folder = base / model_name
+        df = pd.read_csv(csv_file)
+
+        if "rmse" in df.columns and df["rmse"].notna().all():
+            if verbose:
+                print(f"  [SKIP] {model_name}.csv: rmse column already complete")
+            summary[model_name] = {
+                "total": len(df), "filled": len(df), "missing": 0}
+            continue
+
+        rmse_values = [np.nan] * len(df)
+        filled = 0
+        missing = 0
+
+        if not npz_folder.exists():
+            if verbose:
+                print(f"  [WARN] {model_name}: npz folder not found, filling NaN")
+            missing = len(df)
+        else:
+            for i, row in df.iterrows():
+                strategy = row.get("strategy", row.get("validation", ""))
+                fold = row.get("fold", None)
+                sample_size = row.get("sample_size", 500000)
+
+                npz_candidates = [
+                    npz_folder / f"train_size_{sample_size}_fold_{fold}.npz",
+                    npz_folder / f"{strategy}_size_{sample_size}_fold_{fold}.npz",
+                ]
+
+                npz_path = None
+                for c in npz_candidates:
+                    if c.exists():
+                        npz_path = c
+                        break
+
+                if npz_path is None:
+                    missing += 1
+                    continue
+
+                try:
+                    data = np.load(npz_path, allow_pickle=True)
+                    y_true = data["y_true"].flatten()
+                    y_pred = data["y_pred"].flatten()
+                    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+                    rmse_values[i] = rmse
+                    filled += 1
+                except Exception as e:
+                    if verbose:
+                        print(f"  [ERR] {model_name}/{npz_path.name}: {e}")
+                    missing += 1
+
+        df["rmse"] = rmse_values
+
+        if not dry_run:
+            df.to_csv(csv_file, index=False)
+
+        if verbose:
+            tag = "[DRY] " if dry_run else ""
+            print(f"{tag}{model_name}.csv: "
+                  f"{filled}/{len(df)} rows filled, {missing} missing")
+
+        summary[model_name] = {
+            "total": len(df), "filled": filled, "missing": missing}
+
+    if verbose:
+        total_filled = sum(v["filled"] for v in summary.values())
+        total_rows = sum(v["total"] for v in summary.values())
+        sep = "=" * 60
+        if dry_run:
+            print(f"\n{sep}\n[DRY RUN] {total_filled}/{total_rows} rows "
+                  f"can be filled. Set dry_run=False to write.")
+        else:
+            print(f"\n{sep}\n{total_filled}/{total_rows} rows written "
+                  f"across {len(summary)} CSVs.")
+
+    return summary
+

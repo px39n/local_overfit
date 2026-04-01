@@ -5,7 +5,7 @@
 
 This repository contains the code for generating all figures in the paper:
 
-**"Local Overfitting drives Spatial Inequity in Observation-based Environmental Models"**
+**"Local Overfitting Drives Spatially Uneven Performance in Observation-based Atmospheric Models"**
 
 *Zhehao Liang, Stefano Castruccio, Paola Crippa*
 
@@ -13,14 +13,32 @@ This repository contains the code for generating all figures in the paper:
 
 ```
 local_overfit/
-├── data/                          # Data files for figure generation
-│   ├── processed/                 # Preprocessed data ready for plotting
-│   └── raw/                       # Raw experimental results
+├── data/                          # Data files (download from Zenodo)
+│   ├── station_locations.pkl
+│   ├── ozone_density_calculated.nc
+│   ├── ne_10m_land.*              # Natural Earth map boundaries
+│   ├── appendix/
+│   │   ├── represent_10CV_100k/   # Fig 1c
+│   │   ├── 5CV_validation_vs_parameter/  # Fig 2a, 4a
+│   │   ├── 5-Fold-Epochs-reduced/ # Fig 2b
+│   │   ├── 5-Fold-Epochs-full/    # Fig 4b
+│   │   ├── 10-Fold-ablation/      # Supplementary: ablation/strategy tables
+│   │   ├── 10-Fold_2019/          # Fig 3 (year-specific)
+│   │   ├── 10-Fold_2020/          # Fig 3 (year-specific)
+│   │   ├── 10-Fold_2021/          # Fig 3 (year-specific)
+│   │   └── geo_prediction/        # Fig 2c, 4c
+│   └── Analysis/
+│       ├── validation/            # Fig 5a-d
+│       └── Figure5_Region_multi_sufficiency/  # Fig 5e
 ├── source_code/                   # Helper functions and utilities
 │   ├── __init__.py
-│   ├── plotting.py                # Common plotting utilities
-│   ├── data_loader.py             # Data loading functions
-│   └── styles.py                  # Figure styles and color schemes
+│   ├── figure1.py ~ figure5.py   # Per-figure plotting functions
+│   ├── appendix.py               # Appendix figure functions
+│   ├── apx_strategy_ab.py        # Ablation table generation
+│   ├── apx_statistics_local.py   # Local overfitting statistics
+│   ├── fit_surface.py            # Accuracy surface fitting
+│   ├── utils.py                  # Data loading and utilities
+│   └── styles.py                 # Figure styles and color schemes
 ├── main_figures.ipynb             # Main text figures (Fig 1-5)
 ├── supplementary_figures.ipynb    # Supplementary/Appendix figures
 └── README.md                      # This file
@@ -82,7 +100,8 @@ jupyter notebook main_figures.ipynb
 | `appendix/5CV_validation_vs_parameter/` | Parameter complexity analysis | Fig 2a, 4a |
 | `appendix/5-Fold-Epochs-reduced/` | Training epoch analysis for 100 epoch | Fig 2b |
 | `appendix/5-Fold-Epochs-full/epoch_analysis/` | OG epoch analysis for 200 epoch | Fig 4b |
-| `appendix/10-Fold/` | OG ensemble results (all HV×LV combos) | Fig 3 |
+| `appendix/10-Fold-ablation/` | OG ensemble + ablation results (all models) | Supplementary |
+| `appendix/10-Fold_{2019,2020,2021}/` | OG ensemble results, per-year | Fig 3 (averaged) |
 | `appendix/geo_prediction/` | Spatial prediction NetCDF files | Fig 2c, 4c |
 
 ### Analysis Data
@@ -104,7 +123,7 @@ If you use this code, please cite:
 
 ```bibtex
 @article{liang2026og,
-  title={Local Overfitting drives Spatial Inequity in Observation-based Environmental Models},
+  title={Local Overfitting Drives Spatially Uneven Performance in Observation-based Atmospheric Models},
   author={Liang, Zhehao and Castruccio, Stefano and Crippa, Paola},
   journal={},
   year={2025}

@@ -35,6 +35,9 @@ env/
 .DS_Store
 Thumbs.db
 
+# CatBoost training logs
+catboost_info/
+
 # Logs
 *.log
 logs/
